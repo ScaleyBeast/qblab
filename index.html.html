@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QB Lab: Master Edition</title>
+    <style>
+        :root { --turf: #266229; --off: #ff9800; --def: #d32f2f; --bg: #121212; --panel: #1e1e1e; --line: rgba(255,255,255,0.4); }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: white; margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        
+        #app-wrapper { display: flex; width: 100%; max-width: 1100px; gap: 15px; padding: 15px; box-sizing: border-box; }
+        #game-container { flex: 1; background: var(--panel); border: 2px solid #333; border-radius: 12px; overflow: hidden; position: relative; display: flex; flex-direction: column; }
+
+        /* HUD */
+        .hud { background: #111; display: flex; justify-content: space-around; padding: 12px; border-bottom: 3px solid #444; }
+        .stat-val { font-size: 1.4rem; font-weight: 900; color: var(--off); display: block; }
+        .stat-label { font-size: 10px; color: #888; text-transform: uppercase; }
+
+        /* Field Visuals */
+        .field-area { 
+            position: relative; 
+            height: 400px; 
+            background: var(--turf); 
+            overflow: hidden; 
+            border-bottom: 3px solid #444;
+            background-image: 
+                linear-gradient(to bottom, var(--line) 5px, transparent 2px),
+                linear-gradient(to right, transparent 30%, rgba(255,255,255,0.1) 1px, transparent 31%, transparent 73%, rgba(255,255,255,0.1) 1px, transparent 74%);
+            background-size: 100% 10%, 100% 100%;
+            background-repeat: repeat-y;
+            transition: background-position 0.8s ease-out; 
+        }
+
+        .yard-number {
+            position: absolute; width: 100%; text-align: center; font-weight: 900;
+            color: rgba(255,255,255,0.2); font-size: 24px; pointer-events: none;
+            display: flex; justify-content: space-between; padding: 0 15px;
+            box-sizing: border-box; transition: top 0.8s ease-out;
+        }
+        
+        /* Overlays */
+        .overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.94); z-index: 10; display: flex; flex-direction: column; padding: 20px; text-align: center; overflow-y: auto; }
+        .centered-overlay { justify-content: center; align-items: center; }
+        
+        .playbook-cat { color: var(--off); font-size: 11px; font-weight: bold; text-align: left; margin: 15px 0 5px 0; text-transform: uppercase; border-left: 3px solid var(--off); padding-left: 8px; }
+        .play-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; width: 100%; }
+
+        /* Players */
+        .player { 
+            width: 22px; height: 22px; border-radius: 50%; position: absolute; 
+            display: flex; justify-content: center; align-items: center; 
+            font-size: 9px; font-weight: bold; font-family: sans-serif; 
+            border: 1.5px solid white; transition: 0.7s ease-out; 
+            transform: translate(-50%, -50%); 
+        }
+        .offense { background: var(--off); color: black; z-index: 5; }
+        .defense { background: var(--def); color: white; z-index: 4; }
+
+        /* Controls */
+        .controls { padding: 15px; background: #151515; display: flex; flex-direction: column; gap: 10px; }
+        .btn-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+        button { padding: 12px; font-size: 11px; border-radius: 4px; font-weight: bold; cursor: pointer; background: #333; color: white; border: 1px solid #555; text-transform: uppercase; }
+        button:hover:not(:disabled) { background: #444; border-color: var(--off); }
+        button:disabled { opacity: 0.5; cursor: not-allowed; border-color: #333; }
+        
+        .pbp-log { font-family: monospace; font-size: 12px; color: #0f0; background: #000; padding: 12px; border-left: 3px solid var(--off); min-height: 55px; display: flex; align-items: center; flex-wrap: wrap; line-height: 1.5; }
+        
+        .first-down-alert {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            font-size: 4rem; font-weight: 900; color: #ffeb3b; text-shadow: 4px 4px 0px #000;
+            z-index: 1000; pointer-events: none; animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .endzone {
+            position: absolute; width: 100%; height: 10%; background: #1a237e; 
+            display: flex; justify-content: center; align-items: center; font-size: 2.5rem; 
+            font-weight: 900; color: rgba(255, 255, 255, 0.3); text-transform: uppercase; 
+            letter-spacing: 10px; pointer-events: none; transition: top 0.8s ease-out;
+        }
+        .endzone-north { border-bottom: 4px solid white; }
+        .endzone-south { border-top: 4px solid white; }
+
+        .stat-row { display: flex; justify-content: space-between; border-bottom: 1px solid #444; padding: 5px 0; }
+        .stat-row span:last-child { color: var(--off); font-weight: bold; }
+
+        @keyframes popIn { 0% { transform: translate(-50%, -50%) scale(0); opacity: 0; } 100% { transform: translate(-50%, -50%) scale(1); opacity: 1; } }
+    </style>
+</head>
+<body>
+
+<div id="app-wrapper">
+    <div id="game-container">
+        
+        <div id="intro-screen" class="overlay centered-overlay" style="z-index: 100; background: var(--bg);">
+            <div style="background:#1e1e1e; padding:30px; border-radius:12px; border:2px solid var(--off); width:90%; max-width:500px; text-align: left;">
+                <h1 style="color:var(--off); margin-top:0; text-align: center; font-size: 28px;">QB LAB: MASTER EDITION</h1>
+                <p style="color:#ccc; font-size: 13px; line-height: 1.6; text-align: center;">
+                    Welcome to the film room. Read the defense, motion your receivers to reveal coverage shells, and pick the perfect beater to march down the field. Your performance is being tracked.
+                </p>
+                <div style="margin: 20px 0; background: #111; padding: 15px; border-radius: 8px;">
+                    <h3 style="margin: 0 0 10px 0; color: white; text-align: center;">YOUR CAREER STATS</h3>
+                    <div id="career-stats-render" style="font-family: monospace; font-size: 14px;"></div>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="resetCareer()" style="flex:1; background:#444;">Reset Career</button>
+                    <button onclick="startCareer()" style="flex:2; background:var(--off); color:black; font-size: 14px;">ENTER LAB</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="hud">
+            <div class="stat-box"><span class="stat-label">Down</span><span class="stat-val" id="down-dist">1st & 10</span></div>
+            <div class="stat-box"><span class="stat-label">Yardline</span><span class="stat-val" id="yard-line">OWN 25</span></div>
+            <div class="stat-box"><span class="stat-label">Clock</span><span class="stat-val" id="clock"></span></div>
+        </div>
+
+        <div class="field-area" id="field">
+            <div id="huddle-screen" class="overlay">
+                <h2 style="margin:0; font-size:18px;">PLAYCALLER</h2>
+                <div id="playbook-render"></div>
+            </div>
+
+            <div id="guess-screen" class="overlay centered-overlay" style="display:none;">
+                <div style="background:#222; padding:20px; border-radius:8px; border:1px solid var(--off); width:85%; max-width: 400px;">
+                    <h3 style="margin-top:0;">LOCK IN YOUR READ</h3>
+                    <div id="guess-opts" class="btn-grid"></div>
+                </div>
+            </div>
+            
+            <div id="summary-screen" class="overlay centered-overlay" style="display:none;">
+                <div style="background:#222; padding:30px; border-radius:12px; border:2px solid var(--off); width:85%; max-width:400px;">
+                    <h2 id="sum-title" style="margin-top:0; color:var(--off); font-size:24px;">DRIVE OVER</h2>
+                    <div id="sum-stats" style="text-align:left; margin: 20px 0; font-family:monospace; font-size:14px; line-height:1.8; color:#ccc;"></div>
+                    <button onclick="startDrive()" style="width:100%; background:var(--off); color:black; padding:12px; font-weight:bold; cursor:pointer;">START NEXT DRIVE</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="pbp-log" id="narrative">Waiting for kickoff...</div>
+            <div id="options" class="btn-grid">
+                <button onclick="startDrive()" style="grid-column: span 2; background: var(--off); color: black;">KICKOFF</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // System Variables
+    let yardline, down, dist, clock, timer, calledPlay, currentDef, hasMotioned, hasRead, rightguess, userGuess;
+    const badgeHTML = `<span style="background:var(--off); color:black; padding:2px 6px; border-radius:3px; margin-right:8px; font-size:10px; font-weight:bold;">LAB</span>`;
+
+    // STAT TRACKING OBJECTS
+    let career = JSON.parse(localStorage.getItem('qbLabCareer')) || {
+        passAtt: 0, passComp: 0, passYds: 0, rushAtt: 0, rushYds: 0,
+        reads: 0, correctReads: 0, score: 0, drives: 0, tds: 0
+    };
+    
+    let driveStats = { passAtt: 0, passComp: 0, passYds: 0, rushAtt: 0, rushYds: 0, reads: 0, correctReads: 0, score: 0 };
+
+    const playbook = [
+        { name: "Inside Zone", type: "run", cat: "Run Plays", beater: ["Cover 4", "Cover 6", "Cover 2"], baseGain: 4, desc: "The RB finds a crease inside and falls forward." },
+        { name: "Power O", type: "run", cat: "Run Plays", beater: ["Cover 0", "Cover 1"], baseGain: 6, desc: "The pulling guard clears a massive hole for the back!" },
+        { name: "Toss Crack", type: "run", cat: "Run Plays", beater: ["Cover 2", "Cover 3"], baseGain: 5, desc: "The back hits the edge and turns the corner upfield." },
+        { name: "HB Draw", type: "run", cat: "Run Plays", beater: ["Cover 4", "Cover 6"], baseGain: 7, desc: "The defense drops deep, and the RB slices through the empty box!" },
+        
+        { name: "Slant/Flat", type: "pass", cat: "Quick Pass", beater: ["Cover 0", "Cover 1", "Cover 2 Man"], baseGain: 7, desc: "The QB fires a bullet to the slant in stride." },
+        { name: "Stick Concept", type: "pass", cat: "Quick Pass", beater: ["Cover 3", "Cover 4"], baseGain: 6, desc: "The tight end sits down in the soft spot of the zone." },
+        { name: "WR Screen", type: "pass", cat: "Quick Pass", beater: ["Cover 0", "Cover 4", "Cover 6"], baseGain: 5, desc: "The WR catches the lateral and follows his blockers." },
+        { name: "Texas Angle", type: "pass", cat: "Quick Pass", beater: ["Cover 2", "Cover 2 Man"], baseGain: 8, desc: "The back cuts sharply inside, catching it over the middle." },
+
+        { name: "Four Verts", type: "pass", cat: "Deep Pass", beater: ["Cover 3", "Cover 6"], baseGain: 20, desc: "The QB launches a bomb deep down the seam!" },
+        { name: "Deep Cross", type: "pass", cat: "Deep Pass", beater: ["Cover 2", "Cover 4"], baseGain: 18, desc: "The WR outruns the safety across the field for a huge gain." },
+        { name: "Post/Wheel", type: "pass", cat: "Deep Pass", beater: ["Cover 3", "Cover 4"], baseGain: 22, desc: "The wheel route catches the secondary sleeping!" },
+        { name: "Post/Corner", type: "pass", cat: "Deep Pass", beater: ["Cover 0", "Cover 1"], baseGain: 25, desc: "The double move leaves the cornerback completely in the dust!" }
+    ];
+
+    const defenses = [
+        { name: "Cover 0", isMan: true, def: [{t:77,l:48,pos:"DT"},{t:77,l:52,pos:"DT"},{t:77,l:40,pos:"DE"},{t:77,l:60,pos:"DE"},{t:75,l:15,pos:"CB"},{t:75,l:85,pos:"CB"},{t:72,l:40,pos:"LB"},{t:72,l:50,pos:"LB"},{t:72,l:60,pos:"LB"},{t:65,l:25, id:"cb-r",pos:"S"},{t:65,l:75,pos:"S"}] },
+        { name: "Cover 1", isMan: true, def: [{t:77,l:48,pos:"DT"},{t:77,l:52,pos:"DT"},{t:77,l:40,pos:"DE"},{t:77,l:60,pos:"DE"},{t:75,l:15,pos:"CB"},{t:75,l:85,pos:"CB"},{t:66,l:42,pos:"LB"},{t:66,l:50,pos:"LB"},{t:66,l:58,pos:"LB"},{t:71,l:25, id:"cb-r",pos:"S"},{t:43,l:50,pos:"FS"}] },
+        { name: "Cover 2 Man", isMan: true, def: [{t:77,l:48,pos:"DT"},{t:77,l:52,pos:"DT"},{t:77,l:40,pos:"DE"},{t:77,l:60,pos:"DE"},{t:75,l:15,pos:"CB"},{t:75,l:85,pos:"CB"},{t:72,l:40,pos:"LB"},{t:72,l:50,pos:"LB"},{t:72,l:60,pos:"LB"},{t:45,l:35, id:"cb-r",pos:"S"},{t:45,l:65,pos:"S"}] },
+        { name: "Cover 2", isMan: false, def: [{t:77,l:48,pos:"DT"},{t:77,l:52,pos:"DT"},{t:77,l:40,pos:"DE"},{t:77,l:60,pos:"DE"},{t:70,l:15,pos:"CB"},{t:70,l:85,pos:"CB"},{t:68,l:35,pos:"LB"},{t:68,l:50,pos:"LB"},{t:68,l:65,pos:"LB"},{t:45,l:35, id:"cb-r",pos:"S"},{t:45,l:65,pos:"S"}] },
+        { name: "Cover 3", isMan: false, def: [{t:77,l:48,pos:"DT"},{t:77,l:52,pos:"DT"},{t:77,l:40,pos:"DE"},{t:77,l:60,pos:"DE"},{t:65,l:25,pos:"CB"},{t:65,l:75,pos:"CB"},{t:72,l:40, id:"cb-r",pos:"LB"},{t:72,l:60,pos:"LB"},{t:45,l:15,pos:"FS"},{t:40,l:50,pos:"S"},{t:45,l:85,pos:"S"}] },
+        { name: "Cover 4", isMan: false, def: [{t:77,l:48,pos:"DT"},{t:77,l:52,pos:"DT"},{t:77,l:40,pos:"DE"},{t:77,l:60,pos:"DE"},{t:72,l:35, id:"cb-r",pos:"LB"},{t:72,l:50,pos:"LB"},{t:72,l:65,pos:"LB"},{t:45,l:15,pos:"CB"},{t:40,l:35,pos:"S"},{t:40,l:65,pos:"S"},{t:45,l:85,pos:"CB"}] },
+        { name: "Cover 6", isMan: false, def: [{t:77,l:48,pos:"DT"},{t:77,l:52,pos:"DT"},{t:77,l:40,pos:"DE"},{t:77,l:60,pos:"DE"},{t:72,l:35, id:"cb-r",pos:"LB"},{t:72,l:50,pos:"LB"},{t:75,l:85,pos:"LB"},{t:45,l:15,pos:"CB"},{t:40,l:35,pos:"S"},{t:40,l:70,pos:"S"},{t:65,l:65,pos:"CB"}] }
+    ];
+
+    const offense11 = [{t:88, l:50, pos:"QB"}, {t:82, l:46, pos:"LG"}, {t:82, l:50, pos:"C"}, {t:82, l:54, pos:"RG"}, {t:82, l:42, pos:"LT"}, {t:82, l:58, pos:"RT"}, {t:82, l:15, pos:"WR"}, {t:82, l:85, pos:"WR"}, {t:92, l:45, pos:"RB"}, {t:82, l:75, pos:"TE"}, {t:85, l:25, id:"mot-wr", pos:"WR"}];
+
+    // INIT CAREER SCREEN
+    window.onload = () => {
+        renderCareerStats();
+    };
+
+    function renderCareerStats() {
+        const rAcc = career.reads > 0 ? Math.round((career.correctReads / career.reads) * 100) : 0;
+        const compPct = career.passAtt > 0 ? Math.round((career.passComp / career.passAtt) * 100) : 0;
+        document.getElementById('career-stats-render').innerHTML = `
+            <div class="stat-row"><span>Total Score:</span><span>${career.score.toLocaleString()}</span></div>
+            <div class="stat-row"><span>Drives / TDs:</span><span>${career.drives} / ${career.tds}</span></div>
+            <div class="stat-row"><span>Read Accuracy:</span><span>${rAcc}% (${career.correctReads}/${career.reads})</span></div>
+            <div class="stat-row"><span>Passing:</span><span>${career.passComp}/${career.passAtt} (${compPct}%) for ${career.passYds} Yds</span></div>
+            <div class="stat-row"><span>Rushing:</span><span>${career.rushAtt} Att for ${career.rushYds} Yds</span></div>
+        `;
+    }
+
+    function resetCareer() {
+        if(confirm("Are you sure you want to delete your career history?")) {
+            localStorage.removeItem('qbLabCareer');
+            career = { passAtt: 0, passComp: 0, passYds: 0, rushAtt: 0, rushYds: 0, reads: 0, correctReads: 0, score: 0, drives: 0, tds: 0 };
+            renderCareerStats();
+        }
+    }
+
+    function startCareer() {
+        document.getElementById('intro-screen').style.display = 'none';
+        startDrive();
+    }
+
+    function createFieldMarkers() {
+        const field = document.getElementById('field');
+        Array.from(field.getElementsByClassName('yard-number')).forEach(e => e.remove());
+        for (let i = 10; i <= 90; i += 10) {
+            const div = document.createElement('div');
+            div.className = 'yard-number';
+            div.id = `marker-${i}`;
+            div.innerHTML = `<span></span><span></span>`;
+            field.appendChild(div);
+        }
+    }
+
+    function startDrive() {
+        yardline = Math.floor(Math.random()*(32)+7); down = 1; dist = 10;
+        
+        // Reset Drive Stats
+        driveStats = { passAtt: 0, passComp: 0, passYds: 0, rushAtt: 0, rushYds: 0, reads: 0, correctReads: 0, score: 0 };
+        
+        document.getElementById('summary-screen').style.display = 'none';
+        document.getElementById('narrative').innerHTML = `${badgeHTML} Call the first play, Coach.`;
+        createFieldMarkers(); updateHUD(); showHuddle();
+    }
+
+    function updateHUD() {
+        document.getElementById('down-dist').innerText = `${down} & ${dist}`;
+        document.getElementById('yard-line').innerText = yardline < 50 ? `OWN ${yardline}` : yardline === 50 ? "50" : `OPP ${100-yardline}`;
+
+        for (let i = 10; i <= 90; i += 10) {
+            const marker = document.getElementById(`marker-${i}`);
+            if (marker) {
+                marker.style.top = (50 + (i - yardline)) + "%"; 
+                const pos = 50 + (i - yardline);
+                marker.style.opacity = (pos < 0 || pos > 100) ? "0" : "1";
+            }
+        }
+    }
+
+    function showHuddle() {
+        startClock();
+        document.getElementById('field').style.display = 'block';
+        document.getElementById('huddle-screen').style.display = 'flex';
+        
+        const container = document.getElementById('playbook-render');
+        container.innerHTML = ''; 
+
+        if (down === 4) {
+            let stHeader = document.createElement('div');
+            stHeader.className = 'playbook-cat';
+            stHeader.innerText = "Special Teams";
+            stHeader.style.color = "#4caf50"; 
+            container.appendChild(stHeader);
+
+            let stGrid = document.createElement('div'); 
+            stGrid.className = 'play-grid';
+
+            let puntBtn = document.createElement('button');
+            puntBtn.innerText = "Punt";
+            puntBtn.style.background = "#455a64";
+            puntBtn.onclick = () => executePunt();
+            stGrid.appendChild(puntBtn);
+
+            let fgBtn = document.createElement('button');
+            fgBtn.innerText = "Field Goal";
+            fgBtn.style.background = "#1b5e20";
+            fgBtn.onclick = () => executeFG();
+            stGrid.appendChild(fgBtn);
+
+            container.appendChild(stGrid);
+        }
+        
+        let cats = [...new Set(playbook.map(p => p.cat))];
+        cats.forEach(cat => {
+            let header = document.createElement('div');
+            header.className = 'playbook-cat';
+            header.innerText = cat;
+            container.appendChild(header);
+
+            let grid = document.createElement('div'); 
+            grid.className = 'play-grid';
+            
+            playbook.filter(p => p.cat === cat).forEach(p => {
+                let b = document.createElement('button'); 
+                b.innerText = p.name;
+                if (down === 4) b.style.borderColor = "#b71c1c"; 
+                b.onclick = () => breakHuddle(p);
+                grid.appendChild(b);
+            });
+            container.appendChild(grid);
+        });
+    }
+
+    function startClock() {
+        clock = Math.floor(Math.random()*(6)+22); clearInterval(timer);
+        timer = setInterval(() => {
+            clock--; document.getElementById('clock').innerText = clock;
+            if(clock <= 0) {
+                clearInterval(timer); yardline -= 5; dist += 5;
+                document.getElementById('huddle-screen').style.display = 'none';
+                document.getElementById('guess-screen').style.display = 'none';
+                document.getElementById('narrative').innerHTML = `${badgeHTML} DELAY OF GAME! Penalty: 5 Yards.`;
+                document.getElementById('options').innerHTML = '<button onclick="showHuddle()" style="grid-column: span 2;">BACK TO HUDDLE</button>';
+                updateHUD();
+            }
+        }, 1000);
+    }
+
+    function breakHuddle(play) {
+        calledPlay = play; hasMotioned = false; hasRead = false; userGuess = "";
+        document.getElementById('huddle-screen').style.display = 'none';
+        currentDef = defenses[Math.floor(Math.random() * defenses.length)];
+        renderField();
+        updateControls();
+        document.getElementById('narrative').innerHTML = `${badgeHTML} Play: <strong>${play.name}</strong>. Analyze the shell.`;
+    }
+
+    function breakHuddle2(play) {
+        calledPlay = play; hasMotioned = false; hasRead = true;
+        document.getElementById('huddle-screen').style.display = 'none';
+        renderField();
+        updateControls();
+    }
+
+    function renderField() {
+        const f = document.getElementById('field');
+        Array.from(f.querySelectorAll('.player')).forEach(e => e.remove());
+        const firstOverlay = f.querySelector('.overlay');
+
+        const makePlayer = (p, cls) => {
+            const el = document.createElement('div');
+            el.className = `player ${cls}`;
+            if (p.id) el.id = p.id;
+            el.style.top = p.t + '%';
+            el.style.left = p.l + '%';
+            el.innerText = p.pos || ""; 
+            return el;
+        };
+
+        offense11.forEach(p => f.insertBefore(makePlayer(p, 'offense'), firstOverlay || null));
+        currentDef.def.forEach(p => f.insertBefore(makePlayer(p, 'defense'), firstOverlay || null));
+    }
+
+    function triggerMotion() {
+        if(hasMotioned) return;
+        hasMotioned = true;
+        document.getElementById('mot-wr').style.left = "80%"; 
+        
+        setTimeout(() => {
+            const cb = document.getElementById('cb-r');
+            if(cb) {
+                if(currentDef.isMan) { cb.style.left = "80%"; } 
+                else { cb.style.left = (parseFloat(cb.style.left) + 4) + "%"; } 
+            }
+        }, 300);
+        updateControls();
+    }
+
+    function updateControls() {
+        const cont = document.getElementById('options');
+        cont.innerHTML = `
+            <button onclick="triggerMotion()" ${hasMotioned ? 'disabled' : ''}>Motion WR</button>
+            <button onclick="showGuessScreen()" style="background:#0d47a1">Read Defense</button>
+        `;
+
+        if (hasRead) {
+            const snapColor = (down === 4) ? "#b71c1c" : "var(--off)";
+            const snapText = (down === 4) ? "Snap (GO FOR IT)" : "Snap Ball";
+            
+            cont.innerHTML = `<button onclick="snapBall()" style="background:${snapColor}; color:white;">${snapText}</button>`;
+            if (clock > 10) {
+                cont.innerHTML += `<button onclick="audibleBack()" style="border:1px solid yellow; color:yellow;">AUDIBLE</button>`;
+            }
+        }
+    }
+    
+    function showGuessScreen() {
+        document.getElementById('guess-screen').style.display = 'flex';
+        let cont = document.getElementById('guess-opts');
+        cont.innerHTML = '';
+        defenses.forEach(d => {
+            let b = document.createElement('button'); b.innerText = d.name;
+            b.onclick = () => finalizeRead(d.name);
+            cont.appendChild(b);
+        });
+    }
+
+    function finalizeRead(guess) {
+        hasRead = true;
+        userGuess = guess;
+        rightguess = (guess === currentDef.name); 
+        document.getElementById('guess-screen').style.display = 'none';
+        
+        // Hide outcome here!
+        document.getElementById('narrative').innerHTML = `${badgeHTML} You locked in your read as <strong>${guess}</strong>. Ready for the snap.`;
+        updateControls(); 
+    }
+
+    function audibleBack() {
+        document.getElementById('field').style.display = 'block';
+        document.getElementById('huddle-screen').style.display = 'flex';
+        const container = document.getElementById('playbook-render');
+        container.innerHTML = ''; 
+        let cats = [...new Set(playbook.map(p => p.cat))];
+        cats.forEach(cat => {
+            let header = document.createElement('div');
+            header.className = 'playbook-cat'; header.innerText = cat; container.appendChild(header);
+            let grid = document.createElement('div'); grid.className = 'play-grid';
+            playbook.filter(p => p.cat === cat).forEach(p => {
+                let b = document.createElement('button'); b.innerText = p.name;
+                b.onclick = () => breakHuddle2(p); grid.appendChild(b);
+            });
+            container.appendChild(grid);
+        });
+    }
+
+    function snapBall() {
+        clearInterval(timer);
+        const defenseName = currentDef.name;
+        let roll = Math.random() * 100;
+        let isBeater = calledPlay.beater.includes(defenseName);
+        let yds = 0;
+
+        // 1. CALCULATE YARDS
+        if (isBeater && rightguess === true) {
+            yds = calledPlay.baseGain + Math.floor(Math.random() * (calledPlay.cat === "Deep Pass" ? 18 : 8));
+        } else if (isBeater) {
+            yds = calledPlay.baseGain + Math.floor(Math.random() * (calledPlay.cat === "Deep Pass" ? 15 : 6));
+        } else {
+            yds = roll < 30 ? (calledPlay.cat === "Deep Pass" ? -6 : -3) : Math.floor(Math.random() * 4);
+        }
+
+        // 2. STAT TRACKING
+        driveStats.reads++;
+        if (rightguess) driveStats.correctReads++;
+
+        if (calledPlay.type === "pass") {
+            driveStats.passAtt++;
+            if (yds > 0) { driveStats.passComp++; driveStats.passYds += yds; } 
+            else { driveStats.passYds += yds; /* Sacks take away pass yds */ }
+        } else {
+            driveStats.rushAtt++;
+            driveStats.rushYds += yds;
+        }
+        driveStats.score += (yds * 2) + (rightguess ? 50 : 0);
+
+        // 3. BUILD THE DEEP NARRATIVE
+        let readFeedback = rightguess 
+            ? `You correctly diagnosed the ${defenseName}. ` 
+            : `You misread the shell (expected ${userGuess}, but it was ${defenseName}). `;
+            
+        let matchupFeedback = isBeater 
+            ? `Your ${calledPlay.name} was the perfect counter to their coverage. ` 
+            : `The ${calledPlay.name} struggled to find space against the ${defenseName}. `;
+
+        let actionDesc = "";
+        const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+        
+        if (calledPlay.type === "pass") {
+            if (yds > 10) actionDesc = pick([`The QB fires a strike! The defense was shredded.`, `Caught! Huge chunk of yardage for the offense.`]);
+            else if (yds > 0) actionDesc = pick([`A quick completion. The defense was all over it quickly.`, `He hits his target underneath.`]);
+            else actionDesc = pick([`SACKED! The pass rush breaks through.`, `Nowhere to go! Dropped in the backfield.`]);
+        } else {
+            if (yds > 4) actionDesc = pick([`The back bursts through for a great gain!`, `He finds a massive lane and racks up yards.`]);
+            else if (yds > 0) actionDesc = pick([`A tough run against a heavy front.`, `He grinds out hard yards inside.`]);
+            else actionDesc = pick([`Stuffed! Penetration results in a loss.`, `Dropped in the backfield instantly.`]);
+        }
+
+        yardline += yds; 
+        dist -= yds;
+        
+        document.getElementById('narrative').innerHTML = `
+            ${badgeHTML} <strong>${yds >= 0 ? 'Gain of '+yds : 'Loss of '+Math.abs(yds)} yards.</strong><br>
+            <span style="color:#aaa;">${readFeedback}${matchupFeedback}${actionDesc}</span>
+        `;
+
+        // 4. CHECK DRIVE STATUS
+        if (yardline >= 100) { finishDrive("TOUCHDOWN!"); return; } 
+        else if (dist <= 0) { 
+            down = 1; dist = 10;
+            const alert = document.createElement('div');
+            alert.className = 'first-down-alert'; alert.innerText = 'FIRST DOWN!';
+            document.getElementById('game-container').appendChild(alert);
+            setTimeout(() => { alert.style.opacity = '0'; alert.style.transition = '0.3s'; setTimeout(() => alert.remove(), 300); }, 1200); 
+        } 
+        else if (down >= 4) { finishDrive("TURNOVER ON DOWNS"); return; } 
+        else { down++; }
+
+        updateHUD();
+        document.getElementById('options').innerHTML = '<button onclick="showHuddle()" style="grid-column: span 2; background:var(--off); color:black;">NEXT PLAY</button>';
+    }
+
+    function finishDrive(title) {
+        clearInterval(timer);
+        career.drives++;
+        if(title.includes("TOUCHDOWN")) { career.tds++; driveStats.score += 600; }
+        
+        // Save to Career
+        career.passAtt += driveStats.passAtt; career.passComp += driveStats.passComp;
+        career.passYds += driveStats.passYds; career.rushAtt += driveStats.rushAtt;
+        career.rushYds += driveStats.rushYds; career.reads += driveStats.reads;
+        career.correctReads += driveStats.correctReads; career.score += driveStats.score;
+        localStorage.setItem('qbLabCareer', JSON.stringify(career));
+
+        document.getElementById('field').style.display = 'none';
+        const summary = document.getElementById('summary-screen');
+        summary.style.display = 'flex';
+        
+        const readPct = driveStats.reads > 0 ? Math.round((driveStats.correctReads / driveStats.reads)*100) : 0;
+
+        document.getElementById('sum-title').innerText = title;
+        document.getElementById('sum-stats').innerHTML = `
+            <div class="stat-row"><span>DRIVE SCORE:</span><span>+${driveStats.score}</span></div>
+            <div class="stat-row"><span>Read Accuracy:</span><span>${readPct}% (${driveStats.correctReads}/${driveStats.reads})</span></div>
+            <div class="stat-row"><span>Passing:</span><span>${driveStats.passComp}/${driveStats.passAtt} for ${driveStats.passYds} Yds</span></div>
+            <div class="stat-row"><span>Rushing:</span><span>${driveStats.rushAtt} for ${driveStats.rushYds} Yds</span></div>
+        `;
+        renderCareerStats(); // update background intro stats too
+    }
+
+    function executePunt() {
+        clearInterval(timer);
+        document.getElementById('huddle-screen').style.display = 'none';
+        const netYards = 35 + Math.floor(Math.random() * 15);
+        document.getElementById('narrative').innerHTML = `${badgeHTML} <strong>PUNT:</strong> The punt rolls for a total of ${netYards} yards.`;
+        finishDrive(`PUNTED: ${netYards} Yard Net`);
+    }
+
+    function executeFG() {
+        clearInterval(timer);
+        document.getElementById('huddle-screen').style.display = 'none';
+        const distance = (100 - yardline) + 17; 
+        const chance = distance < 40 ? 95 : distance < 50 ? 75 : distance < 60 ? 45 : 15;
+        const isGood = Math.random() * 100 < chance;
+
+        if (isGood) {
+            driveStats.score += 300;
+            document.getElementById('narrative').innerHTML = `${badgeHTML} <strong>FIELD GOAL:</strong> It's GOOD from ${distance} yards.`;
+            finishDrive(`FIELD GOAL GOOD! (${distance} Yds)`);
+        } else {
+            document.getElementById('narrative').innerHTML = `${badgeHTML} <strong>MISSED FG:</strong> The kick is NO GOOD from ${distance} yards.`;
+            finishDrive(`FIELD GOAL MISSED (${distance} Yds)`);
+        }
+    }
+</script>
+</body>
+</html>
